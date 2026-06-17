@@ -453,6 +453,308 @@
               </div>
             </el-tab-pane>
 
+            <el-tab-pane label="数据对比" name="compare">
+              <div class="compare-panel">
+                <el-card class="compare-card">
+                  <template #header>
+                    <div class="card-header with-actions">
+                      <span class="card-title">
+                        <el-icon><Scale /></el-icon>
+                        数据对比分析
+                      </span>
+                      <div class="header-actions">
+                        <el-radio-group v-model="compareMode" size="default">
+                          <el-radio-button value="seeds">
+                            <el-icon><Key /></el-icon>
+                            双种子对比
+                          </el-radio-button>
+                          <el-radio-button value="datasets">
+                            <el-icon><Files /></el-icon>
+                            数据集对比
+                          </el-radio-button>
+                          <el-radio-button value="stream">
+                            <el-icon><Connection /></el-icon>
+                            流式对比
+                          </el-radio-button>
+                        </el-radio-group>
+                      </div>
+                    </div>
+                  </template>
+
+                  <div v-if="compareMode === 'seeds'" class="compare-config">
+                    <el-form :inline="true" class="compare-form">
+                      <el-form-item label="种子1">
+                        <el-input-number v-model="compareSeed1" :min="0" :max="999999999" controls-position="right" />
+                      </el-form-item>
+                      <el-form-item label="种子2">
+                        <el-input-number v-model="compareSeed2" :min="0" :max="999999999" controls-position="right" />
+                        <el-button type="primary" size="small" @click="swapSeeds" style="margin-left: 8px;">
+                          <el-icon><Switch /></el-icon>
+                          交换
+                        </el-button>
+                      </el-form-item>
+                      <el-form-item label="对比数量">
+                        <el-input-number v-model="compareCount" :min="1" :max="1000000" controls-position="right" />
+                      </el-form-item>
+                      <el-form-item label="分块大小">
+                        <el-input-number v-model="compareChunkSize" :min="10" :max="10000" controls-position="right" />
+                      </el-form-item>
+                      <el-form-item>
+                        <el-switch v-model="includeChanges" active-text="包含详细变化" />
+                      </el-form-item>
+                      <el-form-item>
+                        <el-button type="primary" @click="compareBySeeds" :loading="comparing">
+                          <el-icon><Search /></el-icon>
+                          开始对比
+                        </el-button>
+                      </el-form-item>
+                    </el-form>
+                  </div>
+
+                  <div v-if="compareMode === 'datasets'" class="compare-config">
+                    <el-row :gutter="20">
+                      <el-col :span="12">
+                        <el-form-item label="数据集1 (JSON数组)">
+                          <el-input
+                            type="textarea"
+                            v-model="dataset1Input"
+                            :rows="10"
+                            placeholder='[{"id": 1, "name": "张三"}, ...]'
+                            class="dataset-input"
+                          />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :span="12">
+                        <el-form-item label="数据集2 (JSON数组)">
+                          <el-input
+                            type="textarea"
+                            v-model="dataset2Input"
+                            :rows="10"
+                            placeholder='[{"id": 1, "name": "李四"}, ...]'
+                            class="dataset-input"
+                          />
+                        </el-form-item>
+                      </el-col>
+                    </el-row>
+                    <el-form :inline="true" class="compare-form">
+                      <el-form-item>
+                        <el-switch v-model="includeChanges" active-text="包含详细变化" />
+                      </el-form-item>
+                      <el-form-item label="最大变化记录">
+                        <el-input-number v-model="maxChanges" :min="100" :max="100000" controls-position="right" />
+                      </el-form-item>
+                      <el-form-item>
+                        <el-button type="primary" @click="compareDatasets" :loading="comparing">
+                          <el-icon><Search /></el-icon>
+                          开始对比
+                        </el-button>
+                      </el-form-item>
+                    </el-form>
+                  </div>
+
+                  <div v-if="compareMode === 'stream'" class="compare-config">
+                    <el-form :inline="true" class="compare-form">
+                      <el-form-item label="种子1">
+                        <el-input-number v-model="compareSeed1" :min="0" :max="999999999" controls-position="right" />
+                      </el-form-item>
+                      <el-form-item label="种子2">
+                        <el-input-number v-model="compareSeed2" :min="0" :max="999999999" controls-position="right" />
+                      </el-form-item>
+                      <el-form-item label="对比数量">
+                        <el-input-number v-model="compareCount" :min="1" :max="1000000" controls-position="right" />
+                      </el-form-item>
+                      <el-form-item label="分块大小">
+                        <el-input-number v-model="compareChunkSize" :min="10" :max="10000" controls-position="right" />
+                      </el-form-item>
+                      <el-form-item>
+                        <el-button type="primary" @click="startStreamCompare" :loading="comparing" :disabled="streamActive">
+                          <el-icon><VideoPlay /></el-icon>
+                          开始流式对比
+                        </el-button>
+                        <el-button type="danger" @click="stopStreamCompare" :disabled="!streamActive">
+                          <el-icon><VideoPause /></el-icon>
+                          停止
+                        </el-button>
+                      </el-form-item>
+                    </el-form>
+
+                    <div v-if="streamActive" class="stream-progress">
+                      <el-progress :percentage="streamProgress.percentage" :status="streamProgress.percentage >= 100 ? 'success' : ''" />
+                      <div class="stream-stats">
+                        <span>已处理: {{ streamProgress.processed.toLocaleString() }} / {{ streamProgress.total.toLocaleString() }}</span>
+                        <span>变化行数: {{ streamProgress.changedRows.toLocaleString() }}</span>
+                        <span>变化总数: {{ streamProgress.totalChanges.toLocaleString() }}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div v-if="compareProgress" class="compare-progress">
+                    <el-progress :percentage="compareProgress.percentage" :status="comparing ? '' : 'success'" />
+                    <div class="progress-text">
+                      已处理 {{ compareProgress.processed.toLocaleString() }} / {{ compareProgress.total.toLocaleString() }} 条
+                    </div>
+                  </div>
+
+                  <div v-if="compareResult" class="compare-result">
+                    <el-divider>对比结果</el-divider>
+
+                    <el-row :gutter="20" class="result-stats">
+                      <el-col :span="4">
+                        <el-statistic title="总数据量" :value="compareResult.totalRows" />
+                      </el-col>
+                      <el-col :span="4">
+                        <el-statistic title="有变化行数" :value="compareResult.changedRows" />
+                      </el-col>
+                      <el-col :span="4">
+                        <el-statistic title="无变化行数" :value="compareResult.unchangedRows" />
+                      </el-col>
+                      <el-col :span="4">
+                        <el-statistic title="变化总次数" :value="compareResult.totalChanges" />
+                      </el-col>
+                      <el-col :span="4">
+                        <el-statistic title="变化率" :value="changeRate" suffix="%" />
+                      </el-col>
+                      <el-col :span="4">
+                        <el-statistic title="变化字段数" :value="changedFieldCount" />
+                      </el-col>
+                    </el-row>
+
+                    <el-row :gutter="20" v-if="compareResult.onlyInFirst > 0 || compareResult.onlyInSecond > 0">
+                      <el-col :span="12">
+                        <el-alert type="warning" :closable="false" show-icon>
+                          <template #title>仅数据集1有 {{ compareResult.onlyInFirst }} 条数据</template>
+                        </el-alert>
+                      </el-col>
+                      <el-col :span="12">
+                        <el-alert type="warning" :closable="false" show-icon>
+                          <template #title>仅数据集2有 {{ compareResult.onlyInSecond }} 条数据</template>
+                        </el-alert>
+                      </el-col>
+                    </el-row>
+
+                    <el-card v-if="compareResult.unchangedFields && compareResult.unchangedFields.length > 0" class="field-analysis-card">
+                      <template #header>
+                        <span class="card-subtitle">
+                          <el-icon><CircleCheck /></el-icon>
+                          完全不变的字段 ({{ compareResult.unchangedFields.length }})
+                        </span>
+                      </template>
+                      <div class="field-tags">
+                        <el-tag
+                          v-for="field in compareResult.unchangedFields"
+                          :key="field"
+                          type="success"
+                          size="large"
+                          class="field-tag"
+                        >
+                          {{ field }}
+                        </el-tag>
+                      </div>
+                    </el-card>
+
+                    <el-card v-if="compareResult.alwaysChangedFields && compareResult.alwaysChangedFields.length > 0" class="field-analysis-card">
+                      <template #header>
+                        <span class="card-subtitle">
+                          <el-icon><Warning /></el-icon>
+                          每次都变化的字段 ({{ compareResult.alwaysChangedFields.length }})
+                        </span>
+                      </template>
+                      <div class="field-tags">
+                        <el-tag
+                          v-for="field in compareResult.alwaysChangedFields"
+                          :key="field"
+                          type="danger"
+                          size="large"
+                          class="field-tag"
+                        >
+                          {{ field }}
+                        </el-tag>
+                      </div>
+                    </el-card>
+
+                    <el-card class="field-stats-card">
+                      <template #header>
+                        <span class="card-subtitle">
+                          <el-icon><DataLine /></el-icon>
+                          字段变化统计
+                        </span>
+                      </template>
+                      <el-table :data="sortedFieldStats" stripe border style="width: 100%;" max-height="300px">
+                        <el-table-column prop="field" label="字段名" min-width="120" />
+                        <el-table-column prop="changedCount" label="变化次数" min-width="100" />
+                        <el-table-column prop="unchangedCount" label="不变次数" min-width="100" />
+                        <el-table-column prop="totalCount" label="总次数" min-width="100" />
+                        <el-table-column label="变化率" min-width="150">
+                          <template #default="{ row }">
+                            <el-progress :percentage="row.changeRate" :status="row.changeRate === 0 ? 'success' : row.changeRate === 100 ? 'exception' : ''" />
+                          </template>
+                        </el-table-column>
+                        <el-table-column label="变化示例" min-width="200">
+                          <template #default="{ row }">
+                            <div v-if="row.sampleValues && row.sampleValues.length > 0" class="sample-values">
+                              <div v-for="(sample, idx) in row.sampleValues" :key="idx" class="sample-item">
+                                <el-tag size="small" type="info">行{{ sample.rowIndex }}</el-tag>
+                                <span class="sample-old">{{ formatValue(sample.oldValue) }}</span>
+                                <el-icon><ArrowRight /></el-icon>
+                                <span class="sample-new">{{ formatValue(sample.newValue) }}</span>
+                              </div>
+                            </div>
+                            <span v-else class="no-samples">-</span>
+                          </template>
+                        </el-table-column>
+                      </el-table>
+                    </el-card>
+
+                    <el-card v-if="compareResult.sampleChanges && compareResult.sampleChanges.length > 0" class="changes-card">
+                      <template #header>
+                        <span class="card-subtitle">
+                          <el-icon><List /></el-icon>
+                          变化详情示例 (前 {{ compareResult.sampleChanges.length }} 条)
+                        </span>
+                      </template>
+                      <el-collapse>
+                        <el-collapse-item
+                          v-for="(change, idx) in compareResult.sampleChanges"
+                          :key="idx"
+                          :name="idx"
+                        >
+                          <template #title>
+                            <span class="change-title">
+                              <el-tag type="danger" size="small">行{{ change.rowIndex }}</el-tag>
+                              有 {{ change.changes.length }} 处变化
+                            </span>
+                          </template>
+                          <div class="change-details">
+                            <div v-for="(detail, dIdx) in change.changes" :key="dIdx" class="change-item">
+                              <div class="change-field">
+                                <el-tag :type="detail.type === 'modified' ? 'warning' : detail.type === 'added' ? 'success' : 'info'" size="small">
+                                  {{ detail.type === 'modified' ? '修改' : detail.type === 'added' ? '新增' : '删除' }}
+                                </el-tag>
+                                <span class="field-name">{{ detail.field }}</span>
+                              </div>
+                              <div class="change-values" v-if="detail.type === 'modified'">
+                                <span class="old-value">{{ formatValue(detail.oldValue) }}</span>
+                                <el-icon><ArrowRight /></el-icon>
+                                <span class="new-value">{{ formatValue(detail.newValue) }}</span>
+                              </div>
+                              <div class="change-values" v-else-if="detail.type === 'added'">
+                                <span class="new-value">新增值: {{ formatValue(detail.newValue) }}</span>
+                              </div>
+                              <div class="change-values" v-else>
+                                <span class="old-value">原值: {{ formatValue(detail.oldValue) }}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </el-collapse-item>
+                      </el-collapse>
+                    </el-card>
+                  </div>
+
+                  <el-empty v-if="!compareResult && !comparing && !streamActive" description="配置参数后点击「开始对比」查看结果" />
+                </el-card>
+              </div>
+            </el-tab-pane>
+
             <el-tab-pane label="API 文档" name="api">
               <el-card class="api-card">
                 <template #header>
@@ -480,6 +782,34 @@
                   <el-input type="textarea" :rows="10" readonly class="code-block"
                     :value="pageApiExample"
                   />
+                </div>
+
+                <el-divider />
+
+                <div class="api-section">
+                  <h3>POST /api/compare</h3>
+                  <p>对比两个数据集</p>
+                  <el-input type="textarea" :rows="10" readonly class="code-block"
+                    :value="compareApiExample"
+                  />
+                </div>
+
+                <el-divider />
+
+                <div class="api-section">
+                  <h3>POST /api/compare/seeds</h3>
+                  <p>通过两个种子生成并对比数据（分块处理）</p>
+                  <el-input type="textarea" :rows="12" readonly class="code-block"
+                    :value="compareSeedsApiExample"
+                  />
+                </div>
+
+                <el-divider />
+
+                <div class="api-section">
+                  <h3>POST /api/compare/stream</h3>
+                  <p>流式对比（SSE），适合百万级数据量</p>
+                  <p class="api-note">使用 Server-Sent Events 协议，逐块返回对比结果</p>
                 </div>
 
                 <el-divider />

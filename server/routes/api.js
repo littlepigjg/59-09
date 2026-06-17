@@ -3,8 +3,10 @@ const router = express.Router();
 const ModelParser = require('../models/ModelParser');
 const DataGenerator = require('../generator/DataGenerator');
 const DataConverter = require('../utils/converter');
+const DataComparator = require('../comparator/DataComparator');
 
 const modelParser = new ModelParser();
+const dataComparator = new DataComparator({ chunkSize: 100 });
 
 router.post('/parse', (req, res) => {
   try {
@@ -240,6 +242,206 @@ router.get('/templates', (req, res) => {
       }
     ]
   });
+});
+
+router.post('/compare', (req, res) => {
+  try {
+    const { data1, data2, includeChanges = true, maxChanges = 1000 } = req.body;
+
+    if (!data1 || !Array.isArray(data1) || !data2 || !Array.isArray(data2)) {
+      return res.status(400).json({
+        success: false,
+        error: 'data1 和 data2 必须是数组类型'
+      });
+    }
+
+    const result = dataComparator.compareDatasets(data1, data2, { includeChanges, maxChanges });
+
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+router.post('/compare/seeds', async (req, res) => {
+  try {
+    const { model, seed1, seed2, count = 100, includeChanges = true, maxChanges = 1000, chunkSize = 100 } = req.body;
+
+    if (!model) {
+      return res.status(400).json({
+        success: false,
+        error: '数据模型不能为空'
+      });
+    }
+
+    if (!seed1 || !seed2) {
+      return res.status(400).json({
+        success: false,
+        error: 'seed1 和 seed2 不能为空'
+      });
+    }
+
+    if (count <= 0 || count > 1000000) {
+      return res.status(400).json({
+        success: false,
+        error: 'count 必须在 1 到 1000000 之间'
+      });
+    }
+
+    const parsedModel = modelParser.parse(model);
+
+    const result = await dataComparator.compareBySeeds(parsedModel, seed1, seed2, count, {
+      includeChanges,
+      maxChanges,
+      chunkSize
+    });
+
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+router.get('/compare/stream', async (req, res) => {
+  try {
+    const { model, seed1, seed2, count = 100, chunkSize = 100 } = req.query;
+
+    if (!model) {
+      return res.status(400).json({
+        success: false,
+        error: '数据模型不能为空'
+      });
+    }
+
+    if (!seed1 || !seed2) {
+      return res.status(400).json({
+        success: false,
+        error: 'seed1 和 seed2 不能为空'
+      });
+    }
+
+    const countNum = parseInt(count);
+    const chunkSizeNum = parseInt(chunkSize);
+
+    if (countNum <= 0 || countNum > 1000000) {
+      return res.status(400).json({
+        success: false,
+        error: 'count 必须在 1 到 1000000 之间'
+      });
+    }
+
+    let modelObj;
+    try {
+      modelObj = JSON.parse(decodeURIComponent(model));
+    } catch (e) {
+      return res.status(400).json({
+        success: false,
+        error: 'model 参数格式错误，必须是有效的JSON字符串'
+      });
+    }
+    const parsedModel = modelParser.parse(modelObj);
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+
+    const stream = dataComparator.compareBySeedsStream(
+      parsedModel,
+      seed1,
+      seed2,
+      countNum,
+      { chunkSize: chunkSizeNum }
+    );
+
+    for await (const chunk of stream) {
+      res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+    }
+
+    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+    res.end();
+  } catch (error) {
+    if (!res.headersSent) {
+      res.status(400).json({
+        success: false,
+        error: error.message
+      });
+    } else {
+      res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+      res.end();
+    }
+  }
+});
+
+router.post('/compare/stream', async (req, res) => {
+  try {
+    const { model, seed1, seed2, count = 100, chunkSize = 100 } = req.body;
+
+    if (!model) {
+      return res.status(400).json({
+        success: false,
+        error: '数据模型不能为空'
+      });
+    }
+
+    if (!seed1 || !seed2) {
+      return res.status(400).json({
+        success: false,
+        error: 'seed1 和 seed2 不能为空'
+      });
+    }
+
+    if (count <= 0 || count > 1000000) {
+      return res.status(400).json({
+        success: false,
+        error: 'count 必须在 1 到 1000000 之间'
+      });
+    }
+
+    const parsedModel = modelParser.parse(model);
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+
+    const stream = dataComparator.compareBySeedsStream(
+      parsedModel,
+      seed1,
+      seed2,
+      count,
+      { chunkSize }
+    );
+
+    for await (const chunk of stream) {
+      res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+    }
+
+    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+    res.end();
+  } catch (error) {
+    if (!res.headersSent) {
+      res.status(400).json({
+        success: false,
+        error: error.message
+      });
+    } else {
+      res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+      res.end();
+    }
+  }
 });
 
 module.exports = router;

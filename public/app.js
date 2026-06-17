@@ -1,4 +1,4 @@
-const { createApp, ref, reactive, computed, watch, onMounted, markRaw } = Vue;
+const { createApp, ref, reactive, computed, watch, onMounted, onBeforeUnmount, markRaw } = Vue;
 const { ElMessage, ElMessageBox } = ElementPlus;
 
 const CLIENT_PAGINATION_THRESHOLD = 1000;
@@ -24,6 +24,28 @@ const app = createApp({
     const fieldTypes = ref([]);
     const formats = ref([]);
     const templates = ref([]);
+
+    const compareMode = ref('seeds');
+    const comparing = ref(false);
+    const compareSeed1 = ref(12345);
+    const compareSeed2 = ref(54321);
+    const compareCount = ref(1000);
+    const compareChunkSize = ref(100);
+    const includeChanges = ref(true);
+    const maxChanges = ref(1000);
+    const dataset1Input = ref('');
+    const dataset2Input = ref('');
+    const compareResult = ref(null);
+    const compareProgress = ref(null);
+    const streamActive = ref(false);
+    const streamProgress = reactive({
+      processed: 0,
+      total: 0,
+      percentage: 0,
+      changedRows: 0,
+      totalChanges: 0
+    });
+    let eventSource = null;
 
     const modelForm = reactive({
       name: '用户',
@@ -110,6 +132,85 @@ Content-Type: application/json
     "seed": ${seed.value}
   }
 }`;
+    });
+
+    const compareApiExample = computed(() => {
+      return `// 请求 - 对比两个数据集
+POST /api/compare
+Content-Type: application/json
+
+{
+  "data1": [{"id": 1, "name": "张三"}, {"id": 2, "name": "李四"}],
+  "data2": [{"id": 1, "name": "张三三"}, {"id": 2, "name": "李四"}],
+  "includeChanges": true,
+  "maxChanges": 1000
+}
+
+// 响应
+{
+  "success": true,
+  "data": {
+    "totalRows": 2,
+    "changedRows": 1,
+    "unchangedRows": 1,
+    "totalChanges": 1,
+    "fieldStats": {...},
+    "changes": [...]
+  }
+}`;
+    });
+
+    const compareSeedsApiExample = computed(() => {
+      return `// 请求 - 通过两个种子对比（分块处理，支持百万级数据）
+POST /api/compare/seeds
+Content-Type: application/json
+
+{
+  "model": {
+    "name": "${modelForm.name}",
+    "fields": [...]
+  },
+  "seed1": 12345,
+  "seed2": 54321,
+  "count": 100000,
+  "chunkSize": 100,
+  "includeChanges": true,
+  "maxChanges": 1000
+}
+
+// 响应
+{
+  "success": true,
+  "data": {
+    "totalRows": 100000,
+    "changedRows": 98765,
+    "unchangedRows": 1235,
+    "totalChanges": 456789,
+    "fieldStats": {
+      "id": { "field": "id", "changedCount": 0, "changeRate": 0, ... },
+      "name": { "field": "name", "changedCount": 98765, "changeRate": 98.77, ... }
+    },
+    "unchangedFields": ["id"],
+    "alwaysChangedFields": ["name", "email"],
+    "changes": [...],
+    "seeds": { "seed1": 12345, "seed2": 54321 }
+  }
+}`;
+    });
+
+    const changeRate = computed(() => {
+      if (!compareResult.value || compareResult.value.totalRows === 0) return 0;
+      return Number(((compareResult.value.changedRows / compareResult.value.totalRows) * 100).toFixed(2));
+    });
+
+    const changedFieldCount = computed(() => {
+      if (!compareResult.value || !compareResult.value.fieldStats) return 0;
+      return Object.values(compareResult.value.fieldStats).filter(s => s.changeRate > 0).length;
+    });
+
+    const sortedFieldStats = computed(() => {
+      if (!compareResult.value || !compareResult.value.fieldStats) return [];
+      return Object.values(compareResult.value.fieldStats).sort((a, b) => b.changeRate - a.changeRate);
     });
 
     const getDefaultRule = (type) => {
@@ -494,6 +595,248 @@ Content-Type: application/json
       }
     };
 
+    const formatValue = (value) => {
+      if (value === null || value === undefined) return 'null';
+      if (typeof value === 'boolean') return value ? 'true' : 'false';
+      if (typeof value === 'object') return JSON.stringify(value);
+      return String(value);
+    };
+
+    const swapSeeds = () => {
+      const temp = compareSeed1.value;
+      compareSeed1.value = compareSeed2.value;
+      compareSeed2.value = temp;
+    };
+
+    const compareBySeeds = async () => {
+      if (modelForm.fields.length === 0) {
+        ElMessage.warning('请至少添加一个字段');
+        return;
+      }
+
+      if (compareSeed1.value === compareSeed2.value) {
+        ElMessage.warning('两个种子值不能相同');
+        return;
+      }
+
+      comparing.value = true;
+      compareResult.value = null;
+      compareProgress.value = null;
+
+      try {
+        const startTime = Date.now();
+        const response = await fetch('/api/compare/seeds', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: modelForm,
+            seed1: compareSeed1.value,
+            seed2: compareSeed2.value,
+            count: compareCount.value,
+            chunkSize: compareChunkSize.value,
+            includeChanges: includeChanges.value,
+            maxChanges: maxChanges.value
+          })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+          compareResult.value = result.data;
+          const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+          ElMessage.success(`对比完成，共 ${result.data.totalRows.toLocaleString()} 条数据，耗时 ${duration}s`);
+        } else {
+          ElMessage.error(result.error || '对比失败');
+        }
+      } catch (error) {
+        ElMessage.error('请求失败：' + error.message);
+      } finally {
+        comparing.value = false;
+      }
+    };
+
+    const compareDatasets = async () => {
+      let data1, data2;
+      try {
+        data1 = JSON.parse(dataset1Input.value);
+        data2 = JSON.parse(dataset2Input.value);
+      } catch (e) {
+        ElMessage.error('JSON 解析失败，请检查输入格式');
+        return;
+      }
+
+      if (!Array.isArray(data1) || !Array.isArray(data2)) {
+        ElMessage.error('数据集必须是数组类型');
+        return;
+      }
+
+      comparing.value = true;
+      compareResult.value = null;
+
+      try {
+        const startTime = Date.now();
+        const response = await fetch('/api/compare', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            data1,
+            data2,
+            includeChanges: includeChanges.value,
+            maxChanges: maxChanges.value
+          })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+          compareResult.value = result.data;
+          const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+          ElMessage.success(`对比完成，共 ${result.data.totalRows.toLocaleString()} 条数据，耗时 ${duration}s`);
+        } else {
+          ElMessage.error(result.error || '对比失败');
+        }
+      } catch (error) {
+        ElMessage.error('请求失败：' + error.message);
+      } finally {
+        comparing.value = false;
+      }
+    };
+
+    const startStreamCompare = async () => {
+      if (modelForm.fields.length === 0) {
+        ElMessage.warning('请至少添加一个字段');
+        return;
+      }
+
+      if (compareSeed1.value === compareSeed2.value) {
+        ElMessage.warning('两个种子值不能相同');
+        return;
+      }
+
+      streamActive.value = true;
+      comparing.value = true;
+      compareResult.value = null;
+
+      streamProgress.processed = 0;
+      streamProgress.total = compareCount.value;
+      streamProgress.percentage = 0;
+      streamProgress.changedRows = 0;
+      streamProgress.totalChanges = 0;
+
+      const tempResult = {
+        totalRows: compareCount.value,
+        changedRows: 0,
+        unchangedRows: 0,
+        totalChanges: 0,
+        fieldStats: {},
+        sampleChanges: [],
+        seeds: {
+          seed1: compareSeed1.value,
+          seed2: compareSeed2.value
+        }
+      };
+
+      const allFields = modelForm.fields.map(f => f.name);
+      allFields.forEach(field => {
+        tempResult.fieldStats[field] = {
+          field,
+          changedCount: 0,
+          unchangedCount: 0,
+          changeRate: 0,
+          sampleValues: []
+        };
+      });
+
+      try {
+        const modelStr = encodeURIComponent(JSON.stringify(modelForm));
+        const url = `/api/compare/stream?model=${modelStr}&seed1=${compareSeed1.value}&seed2=${compareSeed2.value}&count=${compareCount.value}&chunkSize=${compareChunkSize.value}`;
+
+        eventSource = new EventSource(url);
+
+        eventSource.onmessage = (event) => {
+          const data = JSON.parse(event.data);
+
+          if (data.done) {
+            stopStreamCompare();
+
+            Object.keys(tempResult.fieldStats).forEach(field => {
+              const stat = tempResult.fieldStats[field];
+              const total = stat.changedCount + stat.unchangedCount;
+              stat.changeRate = total > 0 ? Number((stat.changedCount / total * 100).toFixed(2)) : 0;
+              stat.totalCount = total;
+            });
+
+            tempResult.unchangedFields = Object.keys(tempResult.fieldStats).filter(f => tempResult.fieldStats[f].changeRate === 0);
+            tempResult.alwaysChangedFields = Object.keys(tempResult.fieldStats).filter(f => tempResult.fieldStats[f].changeRate === 100);
+
+            compareResult.value = tempResult;
+            ElMessage.success('流式对比完成');
+            return;
+          }
+
+          if (data.error) {
+            ElMessage.error(data.error);
+            stopStreamCompare();
+            return;
+          }
+
+          streamProgress.processed = data.processed;
+          streamProgress.percentage = data.percentage;
+
+          data.rows.forEach(row => {
+            if (row.hasChanges) {
+              streamProgress.changedRows++;
+              tempResult.changedRows++;
+              streamProgress.totalChanges += row.changes.length;
+              tempResult.totalChanges += row.changes.length;
+
+              row.changes.forEach(change => {
+                const field = change.field.split('.')[0];
+                if (tempResult.fieldStats[field]) {
+                  tempResult.fieldStats[field].changedCount++;
+                  if (tempResult.fieldStats[field].sampleValues.length < 5) {
+                    tempResult.fieldStats[field].sampleValues.push({
+                      rowIndex: row.rowIndex,
+                      oldValue: change.oldValue,
+                      newValue: change.newValue
+                    });
+                  }
+                }
+              });
+
+              if (tempResult.sampleChanges.length < 10) {
+                tempResult.sampleChanges.push(row);
+              }
+            } else {
+              tempResult.unchangedRows++;
+              Object.keys(tempResult.fieldStats).forEach(field => {
+                tempResult.fieldStats[field].unchangedCount++;
+              });
+            }
+          });
+        };
+
+        eventSource.onerror = (error) => {
+          console.error('SSE Error:', error);
+          stopStreamCompare();
+          ElMessage.error('流式对比出错');
+        };
+
+      } catch (error) {
+        ElMessage.error('请求失败：' + error.message);
+        stopStreamCompare();
+      }
+    };
+
+    const stopStreamCompare = () => {
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+      streamActive.value = false;
+      comparing.value = false;
+    };
+
     const loadMeta = async () => {
       try {
         const [typesRes, templatesRes] = await Promise.all([
@@ -608,6 +951,10 @@ Content-Type: application/json
       initDefaultModel();
     });
 
+    onBeforeUnmount(() => {
+      stopStreamCompare();
+    });
+
     return {
       activeTab,
       editingFieldIndex,
@@ -633,6 +980,25 @@ Content-Type: application/json
       displayTotalCount,
       generateApiExample,
       pageApiExample,
+      compareApiExample,
+      compareSeedsApiExample,
+      changeRate,
+      changedFieldCount,
+      sortedFieldStats,
+      compareMode,
+      comparing,
+      compareSeed1,
+      compareSeed2,
+      compareCount,
+      compareChunkSize,
+      includeChanges,
+      maxChanges,
+      dataset1Input,
+      dataset2Input,
+      compareResult,
+      compareProgress,
+      streamActive,
+      streamProgress,
       addField,
       removeField,
       selectField,
@@ -641,13 +1007,19 @@ Content-Type: application/json
       getTypeLabel,
       randomSeed,
       formatCellValue,
+      formatValue,
       onPaginationModeChange,
       generateData,
       onPageChange,
       onPageSizeChange,
       exportJSON,
       exportCSV,
-      applyTemplate
+      applyTemplate,
+      swapSeeds,
+      compareBySeeds,
+      compareDatasets,
+      startStreamCompare,
+      stopStreamCompare
     };
   }
 });

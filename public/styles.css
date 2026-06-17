@@ -424,3 +424,202 @@ body {
   font-weight: 600;
   color: #303133;
 }
+
+.compare-panel {
+  height: 100%;
+}
+
+.compare-card {
+  height: 100%;
+}
+
+.compare-card :deep(.el-card__body) {
+  padding: 20px;
+}
+
+.compare-config {
+  margin-bottom: 20px;
+}
+
+.compare-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  align-items: flex-end;
+}
+
+.dataset-input {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+}
+
+.compare-progress {
+  margin: 20px 0;
+}
+
+.progress-text {
+  text-align: center;
+  margin-top: 10px;
+  color: #909399;
+  font-size: 14px;
+}
+
+.stream-progress {
+  margin: 20px 0;
+  padding: 15px;
+  background: #f0f9eb;
+  border-radius: 8px;
+}
+
+.stream-stats {
+  display: flex;
+  justify-content: space-around;
+  margin-top: 15px;
+  font-size: 14px;
+  color: #606266;
+}
+
+.compare-result {
+  margin-top: 20px;
+}
+
+.result-stats {
+  margin-bottom: 20px;
+}
+
+.result-stats .el-statistic__head {
+  font-size: 13px;
+  color: #909399;
+}
+
+.result-stats .el-statistic__content {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.card-subtitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: #606266;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-subtitle .el-icon {
+  color: #667eea;
+}
+
+.field-analysis-card {
+  margin-bottom: 20px;
+}
+
+.field-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.field-tag {
+  margin: 0;
+}
+
+.field-stats-card {
+  margin-bottom: 20px;
+}
+
+.sample-values {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sample-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  padding: 4px 8px;
+  background: #f5f7fa;
+  border-radius: 4px;
+}
+
+.sample-old {
+  color: #f56c6c;
+  text-decoration: line-through;
+}
+
+.sample-new {
+  color: #67c23a;
+  font-weight: 500;
+}
+
+.no-samples {
+  color: #c0c4cc;
+}
+
+.changes-card {
+  margin-bottom: 20px;
+}
+
+.change-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.change-details {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.change-item {
+  padding: 12px;
+  background: #f5f7fa;
+  border-radius: 6px;
+}
+
+.change-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.change-field .field-name {
+  font-weight: 600;
+  color: #303133;
+  margin-left: 0;
+}
+
+.change-values {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 66px;
+  font-size: 13px;
+}
+
+.old-value {
+  color: #f56c6c;
+  background: #fef0f0;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-decoration: line-through;
+}
+
+.new-value {
+  color: #67c23a;
+  background: #f0f9eb;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.api-note {
+  color: #909399;
+  font-size: 13px;
+  margin-top: 5px;
+}

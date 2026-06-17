@@ -17,11 +17,15 @@ app.use('/api', apiRoutes);
 app.get('/api', (req, res) => {
   res.json({
     name: 'Mock Data Generator API',
-    version: '1.0.0',
+    version: '1.1.0',
     endpoints: {
       'POST /api/parse': '解析数据模型',
       'POST /api/generate': '生成数据',
       'POST /api/generate/page': '分页生成数据',
+      'POST /api/compare': '对比两个数据集',
+      'POST /api/compare/seeds': '通过两个种子生成并对比数据（分块处理）',
+      'POST /api/compare/stream': '流式对比（SSE），适合百万级数据量',
+      'GET /api/compare/stream': '流式对比（SSE）GET版本',
       'POST /api/export/json': '导出JSON',
       'POST /api/export/csv': '导出CSV',
       'GET /api/types': '获取支持的类型和格式',
